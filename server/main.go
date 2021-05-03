@@ -28,11 +28,16 @@ type DNSProxyServer struct {
 
 	Upstreams []string
 
-	Questions  uint64
-	Answers    uint64
-	Rejections uint64
-	Shutdowns  uint64
-	Startups   uint64
+	Questions   uint64
+	Answers     uint64
+	Rejections  uint64
+	Shutdowns   uint64
+	Startups    uint64
+	Tests       uint64
+	PassedTests uint64
+	FailedTests uint64
+
+	TestDomains []string
 
 	mutex sync.RWMutex
 
@@ -52,12 +57,12 @@ var (
 
 func init() {
 	rand.Seed(time.Now().Unix())
-	//	pp.Print(resolvconf.Path())
 }
 
 func (s *DNSProxyServer) UpstreamsQty() int {
 	return len(s.Upstreams)
 }
+
 func (s *DNSProxyServer) New() *DNSProxyServer {
 	if len(s.Upstreams) == 0 {
 		log.Fatal("No Upstreams Specified")
@@ -69,14 +74,15 @@ func (s *DNSProxyServer) New() *DNSProxyServer {
 	}
 
 	server := DNSProxyServer{
-		Running:   false,
-		Questions: 0,
-		Answers:   0,
-		Server:    dns_server,
-		Port:      s.Port,
-		Proto:     s.Proto,
-		Upstreams: s.Upstreams,
-		Shutdown:  s.Shutdown,
+		Running:     false,
+		Questions:   0,
+		Answers:     0,
+		Server:      dns_server,
+		Port:        s.Port,
+		Proto:       s.Proto,
+		TestDomains: TEST_DOMAINS,
+		Upstreams:   s.Upstreams,
+		Shutdown:    s.Shutdown,
 	}
 	go server.MonitorSignals()
 	go server.MonitorShutdown()
@@ -105,13 +111,18 @@ Started: 	{{.Started}}
 Port: 	 	{{.Port}}
 Proto: 		{{.Proto}}
 Queries:	{{.Questions}} Questions | {{.Answers}} Answers    | {{.Rejections}} Rejections
-Activity:	{{.Startups}} Startups   | {{.Shutdowns}} Shutdowns
-Running: 	{{.Running}}
+Activity:	{{.Startups}} Startups   | {{.Shutdowns}} Shutdowns | 
+Tests:		{{.PassedTests}} Passed  | {{.FailedTests}} Failed | {{.Tests}} Total | 
+Test Domains:		{{.TestDomains}}
+Upstream Resolvers: {{.Upstreams}}
+
 
 `
 	var buf bytes.Buffer
 	tpl, _ := template.New("stats").Parse(st)
+	s.mutex.Lock()
 	tpl.Execute(&buf, s)
+	s.mutex.Unlock()
 	ret := fmt.Sprintf(`%s`, &buf)
 	fmt.Printf("%s\n", ret)
 	return ret
@@ -187,14 +198,19 @@ func (s *DNSProxyServer) TestWhileRunning() {
 			break
 		}
 		time.Sleep(TEST_WHILE_RUNNING_INTERVAL)
-		//s.Stats()
 	}
 }
 
 func (s *DNSProxyServer) Test() bool {
-	for _, d := range TEST_DOMAINS {
+	for _, d := range s.TestDomains {
 		if s.Running {
-			s.ResolveName(d)
+			ips, ok, err := s.ResolveName(d)
+			atomic.AddUint64(&s.Tests, 1)
+			if !ok || err != nil || len(ips) == 0 {
+				atomic.AddUint64(&s.FailedTests, 1)
+			} else {
+				atomic.AddUint64(&s.PassedTests, 1)
+			}
 		}
 	}
 	return true
@@ -203,8 +219,8 @@ func (s *DNSProxyServer) Test() bool {
 func (s *DNSProxyServer) Start() error {
 	fmt.Printf("[DNSProxyServer Start]Starting DNS Proxy\n")
 	started := time.Now()
-
 	//	s.mutex.Lock()
+	//	defer s.mutex.Unlock()
 
 	dns.HandleFunc(".", s.route)
 	s.Server.ReusePort = true
@@ -234,20 +250,25 @@ func (s *DNSProxyServer) Start() error {
 
 func (s *DNSProxyServer) MonitorShutdown() {
 	for {
-		fmt.Printf("MonitorShutdown Started. Waiting for shutdown signal.............\n")
+		fmt.Printf("[DNSProxyServer] Waiting for Controller Signal.")
+		wait_Start := time.Now()
 		shutdown_signal := <-s.Shutdown
-		fmt.Printf("MonitorShutdown Recieved! => %v | \n", shutdown_signal)
+		wait_dur := time.Since(wait_Start)
+		fmt.Printf("           Signal Recieved after %dms! => %v | \n", wait_dur.Milliseconds(), shutdown_signal)
 		if shutdown_signal {
+			stopped_start := time.Now()
 			s.Running = false
 			atomic.AddUint64(&s.Shutdowns, 1)
 			s.Server.Shutdown()
+			fmt.Printf("Shutdown Completed in %dms\n", time.Since(stopped_start).Milliseconds())
 		} else {
+			started_start := time.Now()
 			atomic.AddUint64(&s.Startups, 1)
 			start_err := s.Start()
 			if start_err != nil {
-				fmt.Printf("MonitorShutdown Start Failed: %s\n", start_err.Error())
+				fmt.Printf("Startup Failed to Start in %dms\n", time.Since(started_start).Milliseconds())
 			} else {
-				fmt.Printf("MonitorShutdown Start Completed! OK!\n")
+				fmt.Printf("Startup Completed in %dms\n", time.Since(started_start).Milliseconds())
 			}
 		}
 	}
