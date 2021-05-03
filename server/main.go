@@ -217,7 +217,7 @@ func (s *DNSProxyServer) Start() error {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Port Opened in %dns\n", dur.Nanoseconds())
+	fmt.Printf("Port Opened in %dms\n", dur.Milliseconds())
 	s.Started = time.Now()
 
 	fmt.Printf("Testing DNS Proxy\n")
