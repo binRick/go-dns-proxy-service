@@ -19,9 +19,8 @@ import (
 )
 
 type DNSProxyServer struct {
-	Running        bool
-	xxxxxxxxxxxxxx bool
-	Started        time.Time
+	Running bool
+	Started time.Time
 
 	Port  int
 	Proto string
