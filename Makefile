@@ -1,7 +1,7 @@
 # Parameters
 GOCMD=go
 COPYCMD=cp
-GO_VERSION=1.16.3
+GO_VERSION=1.16.4
 REAP=reap -vx
 PASSH=passh
 GOBUILD=$(GOCMD) build

@@ -44,7 +44,7 @@ type DNSProxyServer struct {
 	Server *dns.Server
 
 	DebugMode bool
-	Shutdown  <-chan bool
+	Shutdown  chan bool
 }
 
 var (
@@ -56,7 +56,7 @@ var (
 )
 
 const (
-	DEBUG_MODE = false
+	DEBUG_MODE = true
 )
 
 func init() {
@@ -93,6 +93,12 @@ func (s *DNSProxyServer) New() *DNSProxyServer {
 	go s.TestWhileRunning()
 
 	return &server
+}
+
+func (s *DNSProxyServer) Stop() {
+	go func() {
+		s.Shutdown <- true
+	}()
 }
 
 func (s *DNSProxyServer) StartServer() {
@@ -285,8 +291,9 @@ func (s *DNSProxyServer) MonitorSignals() {
 		<-sigs
 		log.Debugf("Shutting down dns proxies.........\n")
 		s.Running = false
+		started := time.Now()
 		s.Server.Shutdown()
-		log.Debugf("Shutdown %v\n", s.Server.Addr)
+		log.Debugf("DNS Proxies %v Shutdown in %dms", s.Server.Addr, time.Since(started).Milliseconds())
 		os.Exit(0)
 	}
 }
